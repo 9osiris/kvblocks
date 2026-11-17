@@ -13,6 +13,7 @@ static void print_stats(const BlockManager& m) {
            s.total_blocks, s.used_blocks, s.free_blocks, s.cached_blocks);
     printf("allocations: %ld, evictions: %ld, prefix hits: %ld, misses: %ld\n",
            s.allocations, s.evictions, s.prefix_hits, s.prefix_misses);
+    printf("oldest cached block age: %ld ticks\n", s.oldest_cached_age);
 }
 
 static void print_seq(const BlockManager& m, int seq, const char* name) {
