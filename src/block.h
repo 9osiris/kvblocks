@@ -14,6 +14,8 @@ struct Block {
     int filled = 0;
     uint64_t hash = 0;
     bool cached = false;
+    // tick of the last time this block was touched, drives lru eviction
+    uint64_t last_used = 0;
     std::vector<int> tokens;
 };
 
@@ -32,6 +34,8 @@ struct Stats {
     long evictions = 0;
     long prefix_hits = 0;
     long prefix_misses = 0;
+    // ticks since the oldest cached block was last touched, 0 if none cached
+    long oldest_cached_age = 0;
 };
 
 // paged kv cache, vllm style. blocks are fixed-size, sequences share
@@ -78,15 +82,21 @@ private:
     long evictions_ = 0;
     long prefix_hits_ = 0;
     long prefix_misses_ = 0;
+    // monotonic tick, bumped on every touch so tests stay deterministic
+    uint64_t clock_ = 0;
     std::vector<Block> blocks_;
-    std::deque<int> free_list_; // block ids with refcount 0, front is oldest
+    // free blocks split in two: uncached ones cost nothing to reuse,
+    // cached ones are ordered by last_used so the front is the lru victim
+    std::deque<int> free_list_;
+    std::deque<int> cached_list_;
     std::unordered_map<uint64_t, int> hash_to_block_;
     std::unordered_map<int, Sequence> sequences_;
 
     uint64_t hash_tokens(uint64_t prev, const std::vector<int>& tokens) const;
+    void touch(Block& block);
     int allocate_block();
     void release_block(int block_id);
-    void drop_from_free_list(int block_id);
+    void drop_from_cached_list(int block_id);
 };
 
 } // namespace kvblocks
