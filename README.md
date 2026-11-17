@@ -45,11 +45,14 @@ what it does:
   it first so the original never changes
 - full blocks stay on a free list after their sequence is freed, so
   attach_prefix can hand them to a new sequence with the same tokens
-- eviction is lru, the oldest cached block goes first
-- stats counts allocations, evictions, prefix hits and misses
+- eviction is true lru now, every block carries a last-touch
+  timestamp and the least recently used cached block goes first. an
+  empty or half-full block is always reused before any cached block
+  gets evicted
+- stats counts allocations, evictions, prefix hits and misses, plus
+  the age of the oldest cached block in ticks
 
 things i didnt do yet:
 - no persistence, the cache dies with the process
-- no per-block timestamps, eviction is just free-list order
 - no sliding window attention or block compression, blocks are dumb
   chunks of ints
