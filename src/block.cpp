@@ -36,12 +36,24 @@ int BlockManager::new_sequence() {
     return id;
 }
 
+void BlockManager::touch(Block& block) {
+    block.last_used = ++clock_;
+}
+
 int BlockManager::allocate_block() {
-    if (free_list_.empty()) {
+    int id = -1;
+    if (!free_list_.empty()) {
+        // an empty or partial block costs nothing to reuse, take one
+        // before evicting any cached prefix
+        id = free_list_.front();
+        free_list_.pop_front();
+    } else if (!cached_list_.empty()) {
+        // every free block holds a prefix, evict the least recently used
+        id = cached_list_.front();
+        cached_list_.pop_front();
+    } else {
         return -1;
     }
-    int id = free_list_.front();
-    free_list_.pop_front();
     Block& block = blocks_[id];
     if (block.cached) {
         hash_to_block_.erase(block.hash);
@@ -56,10 +68,10 @@ int BlockManager::allocate_block() {
     return id;
 }
 
-void BlockManager::drop_from_free_list(int block_id) {
-    auto it = std::find(free_list_.begin(), free_list_.end(), block_id);
-    if (it != free_list_.end()) {
-        free_list_.erase(it);
+void BlockManager::drop_from_cached_list(int block_id) {
+    auto it = std::find(cached_list_.begin(), cached_list_.end(), block_id);
+    if (it != cached_list_.end()) {
+        cached_list_.erase(it);
     }
 }
 
@@ -74,7 +86,13 @@ void BlockManager::release_block(int block_id) {
         block.filled = 0;
         block.hash = 0;
     }
-    free_list_.push_back(block_id);
+    touch(block);
+    // clock only grows, so the back stays the most recently used
+    if (block.cached) {
+        cached_list_.push_back(block_id);
+    } else {
+        free_list_.push_back(block_id);
+    }
 }
 
 bool BlockManager::append(int seq_id, int token) {
@@ -181,7 +199,8 @@ int BlockManager::attach_prefix(int seq_id, const std::vector<int>& tokens) {
         }
         hash_to_block_.erase(hit);
         block.cached = false;
-        drop_from_free_list(block_id);
+        drop_from_cached_list(block_id);
+        touch(block);
         block.ref_count = 1;
         seq.blocks.push_back(block_id);
         prev = h;
@@ -220,7 +239,7 @@ int BlockManager::sequence_blocks(int seq_id) const {
 Stats BlockManager::stats() const {
     Stats s;
     s.total_blocks = num_blocks_;
-    s.free_blocks = (int)free_list_.size();
+    s.free_blocks = (int)(free_list_.size() + cached_list_.size());
     s.cached_blocks = (int)hash_to_block_.size();
     for (const Block& block : blocks_) {
         if (block.ref_count > 0) {
@@ -231,6 +250,15 @@ Stats BlockManager::stats() const {
     s.evictions = evictions_;
     s.prefix_hits = prefix_hits_;
     s.prefix_misses = prefix_misses_;
+    bool any_cached = false;
+    uint64_t oldest = 0;
+    for (const Block& block : blocks_) {
+        if (block.cached && (!any_cached || block.last_used < oldest)) {
+            any_cached = true;
+            oldest = block.last_used;
+        }
+    }
+    s.oldest_cached_age = any_cached ? (long)(clock_ - oldest) : 0;
     return s;
 }
 
